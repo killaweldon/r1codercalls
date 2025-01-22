@@ -1,33 +1,51 @@
+/************************************************
+ * server.js
+ * 
+ * Node/Express server for R1 Coder on Render.
+ * Calls an external AI service for real responses,
+ * using R1_API_TOKEN from Render environment.
+ ************************************************/
 const express = require("express");
-const fetch = require("node-fetch"); // or import fetch from 'node-fetch';
+const cors = require("cors");
+const fetch = require("node-fetch");
+
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Load the token from Render environment
-const r1ApiToken = process.env.R1_API_TOKEN;
+// Load your token from Render’s environment variables
+const R1_API_TOKEN = process.env.R1_API_TOKEN;
 
+// Enable CORS for cross-origin requests (Chrome extension -> this server)
+app.use(cors());
+// Parse JSON bodies
 app.use(express.json());
 
-// Test route
+// Basic test route
 app.get("/", (req, res) => {
   res.send("Welcome to R1 Coder API!");
 });
 
-// Example POST route that calls an external AI service
+/**
+ * POST /api/generate
+ * Expects { prompt: string, model: string } in JSON
+ * Calls an external AI API for a real response
+ */
 app.post("/api/generate", async (req, res) => {
   try {
     const { prompt, model } = req.body;
-    
-    // If you have an external AI endpoint:
-    // e.g., "https://api.some-llm-service.com/v1/completions"
-    const externalAiUrl = "https://example-llm.com/api/v1/generate"; 
+    if (!prompt) {
+      return res.status(400).json({ success: false, error: "Missing prompt in request body." });
+    }
 
-    // Call the external service with your token in headers
-    const response = await fetch(externalAiUrl, {
+    // Example external AI endpoint
+    const externalUrl = "https://some-external-ai.com/v1/generate";
+
+    // Make a POST request to the external AI, using R1_API_TOKEN for authorization
+    const externalResponse = await fetch(externalUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${r1ApiToken}`
+        "Authorization": `Bearer ${R1_API_TOKEN}`
       },
       body: JSON.stringify({
         prompt,
@@ -35,21 +53,38 @@ app.post("/api/generate", async (req, res) => {
       })
     });
 
-    // Parse the returned JSON
-    const data = await response.json();
+    if (!externalResponse.ok) {
+      // If the external AI returns an error (4xx/5xx), handle it gracefully
+      const errorText = await externalResponse.text();
+      console.error("External AI error:", errorText);
+      return res.status(externalResponse.status).json({
+        success: false,
+        error: `External AI returned status ${externalResponse.status}: ${errorText}`
+      });
+    }
 
-    // Send the data back to the client (Chrome extension)
+    // Parse the external AI’s response
+    const data = await externalResponse.json();
+
+    // Suppose the AI’s text is in data.result
+    const aiText = data.result || "No AI result returned.";
+
+    // Return the AI text to the client (Chrome extension)
     return res.json({
       success: true,
-      model,
-      aiResponse: data
+      response: aiText
     });
+
   } catch (error) {
-    console.error("Error calling external AI:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error("Error in /api/generate:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
+// Start the server
 app.listen(port, () => {
   console.log(`R1 Coder API listening on port ${port}`);
 });
